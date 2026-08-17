@@ -4,7 +4,10 @@ a <- 1
 
 b <- 4 
 
-a + b
+c <- -4 
 
-print(a + b)
+a + c
+
+print(a + c)
+
 
