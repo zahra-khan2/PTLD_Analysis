@@ -1,7 +1,9 @@
 ---
 title: "Data_Exploration"
 author: "Zahra Khan"
-format: html
+format:
+  html:
+    embed-resources: true
 ---
 
 # Data Exploration & PTLD Definition
