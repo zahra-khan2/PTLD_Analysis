@@ -293,6 +293,30 @@ df_visits_clean <- df_visits %>%
            ~ grade_restrict(.x, spirometry_grade)),
     across(c(fev1_liters_2, fvc_liters_2, fef_liters_2, pef_liters_per_sec_2),
            ~ grade_restrict(.x, spirometry_grade_2))
+  ) %>%
+  set_variable_labels(
+    # 6-Month Outcomes (Impact)
+    SGRQ_TOTAL_SCORE = "SGRQ Total Score",
+    phq9_total = "PHQ-9 Total Score (Depression)",
+    min_completion_rate = "Sit-to-Stand: Repetitions (1 min)",
+    S2SExertHypoxemia = "Sit-to-Stand: Exertional Hypoxemia",
+    
+    # PTLD Definition
+    complete_spirometry = "Lung Function Tests Completed",
+    obstructive_pattern = "Obstructive Spirometry Pattern",
+    restrictive_pattern = "Restrictive Spirometry Pattern",
+    hypoxemia = "Resting Hypoxemia (SpO2 < 90%)",
+    AnyRespSymptoms = "Any Respiratory Symptoms",
+    PersistentRespSymptoms = "Chronic/Persistent Respiratory Symptoms",
+    
+    # Clustering Features
+    Smoker = "Current Smoking Status",
+    tobacco_hx = "Tobacco Use History",
+    packsperday = "Packs per Day",
+    a1c_percent = "Hemoglobin A1c (%)",
+    missed_dose_last_thirty = "Missed TB Dose (Last 30 Days)",
+    fev1_liters = "FEV1 (Liters)",
+    fvc_liters = "FVC (Liters)"
   )
 
 # 2b. Clean 6-month Visits Dataset
@@ -311,6 +335,12 @@ df_eot_imaging <- df_visits_clean %>%
     eot_alveolar_opacity = alveolar_opacity, 
     eot_pleural_effusion = pleural_effusion,
     eot_percentage_affected_lung = percentage_affected_lung
+  ) %>%
+  set_variable_labels(
+    eot_cavitation = "CXR (EOT): Cavitation",
+    eot_nodules_masses = "CXR (EOT): Nodules or Masses",
+    eot_alveolar_opacity = "CXR (EOT): Alveolar Opacity",
+    eot_pleural_effusion = "CXR (EOT): Pleural Effusion"
   )
 
 df_baseline_imaging <- df_visits_clean %>%
@@ -424,38 +454,9 @@ df_master <- df_master %>%
     asthma_hx = "History of Asthma",
     copd_hx = "History of COPD",
     diabetes_hx = "History of Diabetes",
-    tb_tx_outcomes = "TB Treatment Outcomes",
+    tb_tx_outcomes = "TB Treatment Outcome",
     dwelling_location = "Dwelling Location",
-    previous_tb_treated = "Previous TB Treated",
-    
-    # 6-Month Outcomes (Impact)
-    SGRQ_TOTAL_SCORE = "SGRQ Total Score",
-    phq9_total = "PHQ-9 Total Score (Depression)",
-    min_completion_rate = "Sit-to-Stand: Repetitions (1 min)",
-    S2SExertHypoxemia = "Sit-to-Stand: Exertional Hypoxemia",
-    
-    # PTLD Definition
-    complete_spirometry = "Lung Function Tests Completed",
-    obstructive_pattern = "Obstructive Spirometry Pattern",
-    restrictive_pattern = "Restrictive Spirometry Pattern",
-    hypoxemia = "Resting Hypoxemia (SpO2 < 90%)",
-    AnyRespSymptoms = "Any Respiratory Symptoms",
-    PersistentRespSymptoms = "Chronic/Persistent Respiratory Symptoms",
-    ptld_classification = "PTLD Consensus Classification",
-    ptld_subcategory = "PTLD Sub-category (Domains)",
-    
-    # Clustering Features
-    Smoker = "Current Smoking Status",
-    tobacco_hx = "Tobacco Use History",
-    packsperday = "Packs per Day",
-    a1c_percent = "Hemoglobin A1c (%)",
-    missed_dose_last_thirty = "Missed TB Dose (Last 30 Days)",
-    fev1_liters = "FEV1 (Liters)",
-    fvc_liters = "FVC (Liters)",
-    eot_cavitation = "CXR (EOT): Cavitation",
-    eot_nodules_masses = "CXR (EOT): Nodules or Masses",
-    eot_alveolar_opacity = "CXR (EOT): Alveolar Opacity",
-    eot_pleural_effusion = "CXR (EOT): Pleural Effusion"
+    previous_tb_treated = "Previous TB Treated"
   )
 
 ```
@@ -593,7 +594,7 @@ df_master %>%
   # factors from df_demog_clean, so no re-factoring is needed here.
   # Apply clear labels for the summary table
   set_variable_labels(
-    tb_tx_outcomes = "Raw TB Treatment Outcome",
+    tb_tx_outcomes = "TB Treatment Outcome",
     successful_tx = "Requirement 1: Successfully Treated (Cured/Completed)",
     RecurrenceAfterEOT = "Raw Flag: Recurrence after End of Treatment",
     TxFailAfterEOT = "Raw Flag: Treatment Failure after End of Treatment",
