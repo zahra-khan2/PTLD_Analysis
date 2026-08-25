@@ -1,0 +1,330 @@
+---
+title: "Data_Exploration"
+author: "Zahra Khan"
+format: html
+---
+
+# Data Exploration & PTLD Definition
+
+```{r echo=FALSE, results='hide', warning=FALSE, message= FALSE}
+# libraries
+library(haven)
+library(tidyverse)
+setwd('/Users/zahrakhan/Library/CloudStorage/Box-Box/PTLD_Analysis/PTLD_Analysis')
+
+```
+
+```{r echo=FALSE, results='hide', warning=FALSE}
+# Reading in the data
+df1 <- read_sas("mr264demog.sas7bdat")
+df2 <- read_sas("mr264visits.sas7bdat")
+```
+
+
+## Data Exploration 
+
+Exploring related variables to PTLD definition 
+
+
+```{r echo=FALSE, results='hide'}
+# missingness exploration
+colSums(is.na(df1))
+colSums(is.na(df2))
+```
+
+
+```{r echo=FALSE, results='hide', warning=FALSE}
+# assessing demographics 
+
+
+
+
+# other outcome results (not recent)
+summary(df1$tb_tx_outcome) # many missing values
+ggplot(df1, aes(x = tb_tx_outcomes, fill = region)) +
+  geom_bar()
+
+# looking at those previously treated-> unsure if needed for PTLD definition
+ggplot(df1, aes(x = previous_tb_treated, fill = region)) +
+  geom_bar()
+
+
+ggplot(df1, aes(x = RecurrenceAfterEOT)) + # reccurrent tb
+  geom_bar(fill = "cornflowerblue") 
+
+```
+
+```{r echo=FALSE, results='hide', warning=FALSE, include = FALSE}
+#impaired lung function vars
+hist(df2$fvc_liters)
+
+#impaired lung function vars
+
+# FVC
+
+ggplot(df2, aes(x = fvc_liters)) +
+  geom_histogram(fill = "cornflowerblue")
+
+ggplot(df2, aes(x = fvc_liters_2)) +
+  geom_histogram(fill = "cornflowerblue")
+
+#FEV1
+
+ggplot(df2, aes(x = fev1_liters)) +
+  geom_histogram(fill = "cornflowerblue")
+ggplot(df2, aes(x = fev1_liters_2)) +
+  geom_histogram(fill = "cornflowerblue")
+ggplot(df2, aes(x = fev1_severity)) +
+  geom_bar(fill = "cornflowerblue")
+
+#FEV FVC ratio?
+
+# chronic resp symptoms
+
+ggplot(df2, aes(x = cough)) +
+  geom_bar(fill = "tomato2") # missing counted at 99? 
+
+unique(df2$cough)
+
+ggplot(df2, aes(x = dyspnea)) + # missing vals
+  geom_bar(fill = "tomato2")
+
+# persistent symp
+ggplot(df2, aes(x = PersistentRespSymptoms)) + 
+  geom_bar()
+# any sympt
+ggplot(df2, aes(x = AnyRespSymptoms)) + 
+  geom_bar()
+unique(df2$AnyRespSymptomsSum)
+
+ggplot(df2, aes(x = AnyRespSymptomsSum)) + 
+  geom_bar()
+# wheeze? 
+ggplot(df2, aes(x = sgrq_wheeze)) +
+  geom_bar(fill = "tomato2")
+
+
+# abnormal radiographical imaging 
+
+```
+## PTLD Definition
+
+### Exploring Variables Related to PTLD Definition 
+
+Based upon the criteria listed within the 'Post Tuberculosis lung disease: a case definition for use in research studies" 
+
+1. previously had pulmonary tb which was previously treated & no active tb that requires any treatment
+
+2. to meet this criteira, an indivudal would have to meet two abonormalities in the 3 listed domains: imaging, lung function and symptoms
+
+i. lung function: FEV1, FVC, FEV1 to FVC ratio, lung capacity, haemoglobin adjusted diffusion capacity
+ii. chronic respiratory symptoms: (8wks for adults, 4wks for children) cough (with or without sputum or haemoptysis), dyspnoea or breathlessness, wheezing, limitation in activities due to respiratory ailment 
+iii. imaging: chest xray abnormalities, fibrosis, volume loss, cavitation or parenchymal destruction, pleural thickening, bronchiectasis
+
+```{r echo=FALSE, results='hide', warning=FALSE}
+# Examining first domain: Antecendent Requirements 
+ggplot(data = df1, aes(x = tb_tx_outcomes)) +
+  geom_bar(fill = "lightblue2") # majority seemed to have been cured.
+```
+
+```{r echo=FALSE, results='hide'}
+# joining dataset
+full_dat <- full_join(df1, df2, by = "patient")
+
+```
+
+```{r echo=FALSE, results='hide'}
+count(df1)
+unique(df1$tb_tx_outcomes)
+unique(df1$tb_category)
+unique(df1$recent_tb_tx_outcome)
+df1_1 <- df1 |> 
+  mutate(
+    cured_flag = case_when(
+      tb_tx_outcomes == "1" ~ 1,
+      is.na(tb_tx_outcomes) ~ 2,
+      TRUE ~ 0
+    )
+  )
+outcome_summary <- df1_1 |> 
+  count(cured_flag)
+outcome_summary
+```
+
+```{r echo=FALSE, results='hide'}
+# replicating results from David to obtain PTLD information at 6months post treatment 
+full_dat1 <- full_dat |> 
+  filter(redcap_event_name == "6m_posttx_arm_1") |> 
+  mutate(
+    cured_flag = case_when(
+      tb_tx_outcomes == "1" ~ 1,
+      is.na(tb_tx_outcomes) ~ 2,
+      TRUE ~ 0
+    )
+  )
+outcome_summary <- full_dat1 |> 
+  count(cured_flag)
+outcome_summary
+```
+
+
+
+#### Approach 1 
+Setting up dummy variables related to the 3 domains/requirements for PTLD. Breaking these down into dummy variables (if needed) to best categorize whether a domain has been met. I will be following what David did, based upon in the descriptive statistics summary under PTLD Classification to try to reach the same number of individuals classified under the PTLD definition. 
+```{r echo=FALSE, results='hide'}
+# antecedent requirements 
+
+# unsure how to classify other tb related variables -> will address later
+antecendent_df <- full_dat |> 
+  filter(redcap_event_name == "6m_posttx_arm_1") |> 
+  mutate(
+    cured_tb_flag = case_when(
+      tb_tx_outcomes == "1" ~ 1,
+      is.na(tb_tx_outcomes) ~ 2,
+      TRUE ~ 0
+    ),
+    recur_flag = case_when(
+      RecurrenceAfterEOT == "0" ~ 0,
+      is.na(RecurrenceAfterEOT) ~ 2,
+      TRUE ~ 1
+    ),
+    treat_fail_flag = case_when(
+      TxFailAfterEOT == "0" ~ 0,
+      is.na(TxFailAfterEOT) ~ 2,
+      TRUE ~ 1
+    )
+    )
+
+```
+
+```{r echo=FALSE, results='hide'}
+antecendent_summary <- antecendent_df |> 
+  count(cured_tb_flag) 
+antecendent_summary
+antecendent_summary <- antecendent_df |> #n = 838 -> this meets all antecedent requirements 
+  count(recur_flag) 
+antecendent_summary 
+antecendent_summary <- antecendent_df |> # n = 853
+  count(treat_fail_flag) 
+antecendent_summary 
+
+```
+
+
+```{r echo=FALSE, results='hide'}
+# Current requirements: lung function, symptoms, imaging
+
+# lung function based upon spirometry grade, obstructive, restrictive, and resting hypoxemia SpO2 < 90%
+current_df <- antecendent_df |> 
+  filter(redcap_event_name == "6m_posttx_arm_1") |> 
+  mutate(
+    spiro_grade = case_when(
+      spirometry_grade %in% c("A","B","C") ~ 1,
+      is.na(spirometry_grade) ~ 2,
+      TRUE ~ 0
+    ),
+    obstructive = case_when(
+      obstructive_pattern == "1" ~ 1,
+      is.na(obstructive_pattern) ~ 2,
+      TRUE ~ 0
+    ),
+    restrict = case_when(
+      restrictive_pattern == "1" ~ 1,
+      is.na(restrictive_pattern) ~ 2,
+      TRUE ~ 0
+    ),
+    hypoxemia_flag = case_when( 
+      hypoxemia == "1" ~ 1,
+      is.na(restrictive_pattern) ~ 2,
+      TRUE ~ 0
+    ),
+    symptoms_flag = case_when(
+      AnyRespSymptoms == "1" ~1,
+      is.na(AnyRespSymptoms) ~ 2,
+      TRUE ~ 0
+    ),
+    chronic_symptoms_flag = case_when(
+      PersistentRespSymptoms  == "1" ~ 1,
+      is.na(PersistentRespSymptoms ) ~ 2,
+      TRUE ~ 0
+    )
+  )
+
+```
+
+
+
+```{r echo=FALSE, results='hide'}
+# creating domain specific functions to showcase whether that domain criteria has been met
+# i.e. antecendent_req = 1 means criteria are met based upon sub-criteria within that domain, antecedent_req =0 for example if indivudal has current TB and getting treated
+#domain1 represents vector of all variables we will create above 
+antecendent_domain <- function(cured_tb_flag, recur_flag){
+  domain1 <- case_when(
+    cured_tb_flag == 1 & recur_flag == 0 ~ 1,
+    is.na(cured_tb_flag) | is.na(recur_flag) ~ 0, # counting missing as 0, can adjust later 
+    TRUE ~ 0
+  )
+  return(domain1) # will be 1 or 0
+}
+
+ # adding TRUE/FALSE here
+  # lung function: for at least one-> having a value less than or equal to the 5th percentile of a reference population -> using `|` for this part
+  # symptoms: Presence of at least one of the following for at least 8 weeks (adults) or 4 weeks (for child)
+  # imaging: abnormalities observed after tuberculosis treatment completion that plausibly explain, at least in part -> need to have a more clear definition here
+
+current_domain <- function(spiro_grade, obstructive, restrict, hypoxemia_flag, symptoms_flag, chronic_symptoms_flag){
+  domain2 <- case_when(
+    # lung function
+    (
+      spiro_grade == 1 
+      | obstructive == 1 
+      | restrict == 1 
+      | hypoxemia_flag == 1) & 
+      # symptoms
+      ( 
+        symptoms_flag == 1 
+        & chronic_symptoms_flag == 1) ~ 1,
+    # can add imaging: other_xray_findings___3, cavitation, other_xray_findings___1 
+    is.na(spiro_grade) 
+    | is.na(obstructive) 
+    | is.na(restrict) 
+    | is.na(hypoxemia_flag) 
+    | is.na(symptoms_flag) 
+    | is.na(chronic_symptoms_flag) ~ 0,
+    TRUE ~ 0
+  )
+  return(domain2) # will be 1 or 0
+  
+}
+```
+
+
+```{r echo=FALSE, results='hide'}
+# final function to determine PTLD
+ptld_function <- function(domain1, domain2){
+  #include  lines for when domain1 and domain2 = 1 then PTLD = 1
+  ptld_status <- case_when(
+    domain1 == 1 & domain2 == 1 ~1,
+    is.na(domain1) & is.na(domain2) ~ 0,
+    TRUE ~ 0
+  )
+  return(ptld_status)
+}
+```
+
+
+```{r echo=FALSE, results='hide'}
+# Applying functions
+ptld_dat <- current_df |> 
+  mutate(
+    domain1 = antecendent_domain(cured_tb_flag, recur_flag),
+    domain2 = current_domain(spiro_grade, obstructive, restrict, hypoxemia_flag, symptoms_flag, chronic_symptoms_flag),
+    ptld_status = ptld_function(domain1, domain2)
+  ) 
+
+count(ptld_dat, ptld_status) # 69 meet PTLD status, does not include imaging 
+```
+#### Approach 2
+
+Future planned approach: this approach will be quite similar to Approach 1 with some changes in the current requirements section to follow what the paper discussed and to explore some inclusion of xray variables for fibrosis, cavitation, and bronchiectasis (which I found in the data dictionary). This will also follow that for each subdomain under current requirements, at least one of the variables condition has to be me for that subdomain (i.e. lung function, symptoms, and imagery) to be met and go towards whether the current requiremnts domain meets all requirements. 
+
