@@ -87,90 +87,221 @@ path_demog <- paste0(data_path, "/MR264DEMOG.SAS7BDAT")
 path_visits <- paste0(data_path, "/MR264VISITS.SAS7BDAT")
 
 # Import datasets
-# Note: haven::read_sas brings in SAS labels and formats. 
+# Note: haven::read_sas() only imports the variable LABEL and the *name* of the
+# SAS format (e.g. "SEXFMT") into attributes -- it does NOT decode the value
+# labels themselves (that requires a .sas7bcat catalog file, which we don't have).
+# So every value-label mapping below is transcribed by hand from the data
+# dictionary's `proc format` block and validated against the actual observed
+# values in the raw data.
 df_demog <- read_sas(path_demog)
 df_visits <- read_sas(path_visits)
+
+# ---- Helpers -----------------------------------------------------------
+# factor()/case_when() strip the pre-existing SAS variable label, so we
+# reattach it after recoding rather than re-typing every label by hand.
+relabel <- function(new_x, old_x) {
+  attr(new_x, "label") <- attr(old_x, "label")
+  new_x
+}
+apply_fmt <- function(x, levels, labels) relabel(factor(x, levels = levels, labels = labels), x)
+
+# Shared pattern for the UNKFMT-tagged history/symptom variables, which are
+# consistently coded 0 = No / 1 = Yes / 99 = Unknown (never 2) in this data.
+yn_unk <- function(x) apply_fmt(x, c(0, 1, 99), c("No", "Yes", "Unknown"))
+# Blank out a spirometry-derived value when its test wasn't an acceptable
+# quality grade (A, B, or C); preserves the pre-existing label (if_else()
+# does not carry attributes for numeric vectors the way factor() does).
+grade_restrict <- function(x, grade, ok = c("A", "B", "C")) relabel(if_else(grade %in% ok, x, NA), x)
+
 # 1. Clean Demographics Dataset
 df_demog_clean <- df_demog %>%
   mutate(
-    sex_at_birth = factor(sex_at_birth, levels = c(1, 2, 88), labels = c("Male", "Female", "Other")),
-    hivstatus = factor(hivstatus, levels = c(0, 1), labels = c("Negative", "Positive")),
-    tb_category = factor(tb_category, levels = c(1, 2, 3, 4, 5, 88), labels = c("New case", "Relapse", "Treatment after failure", "Treatment after loss to follow-up", "Transfer in", "Other")),
-    resistance_pattern = factor(resistance_pattern, levels = c(1, 2), labels = c("Drug-susceptible (DS-TB)", "Drug resistant (DR-TB)")),
-    tb_tx_outcomes = factor(tb_tx_outcomes, levels = 1:6, labels = c("Cure", "Treatment Completed", "Treatment failed", "Died (any cause)", "Lost to follow-up", "Transferred out from study site")),
-    dwelling_location = factor(dwelling_location, levels = c(1, 2, 3), labels = c("City/urban area", "Peri-urban area", "Rural area")),
-    previous_tb_treated = factor(previous_tb_treated, levels = c(0, 1), labels = c("No", "Yes")),
-    across(c(asthma_hx, copd_hx, diabetes_hx, death), ~case_when(
-      . == 1 ~ "Yes",
-      . %in% c(0, 2) ~ "No",
-      TRUE ~ NA_character_
-    )),
-    region = factor(
-      region, 
-      levels = c("CA", "CN", "EA", "WA"), 
-      labels = c("Central Africa", "Central/South America", "East Africa", "West Africa")
-    )
+    sex_at_birth = apply_fmt(sex_at_birth, c(1, 2, 88, 99), c("Male", "Female", "Other", "Unknown")),
+    hivstatus = apply_fmt(hivstatus, c(1, 0, 99), c("Positive", "Negative", "Missing or Testing Planned")),
+    tb_category = apply_fmt(tb_category, c(1, 2, 3, 4, 5, 88, 99),
+      c("New case", "Relapse", "Treatment after failure", "Treatment after loss to follow-up",
+        "Transfer in", "Other", "Unknown")),
+    resistance_pattern = apply_fmt(resistance_pattern, c(1, 2, 99),
+      c("Drug-susceptible (DS-TB)", "Drug resistant (DR-TB)", "Unknown")),
+    # NOTE: value 7 ("Not known") is a real, non-missing response present in the
+    # data; earlier code used levels = 1:6 and silently dropped it to NA.
+    tb_tx_outcomes = apply_fmt(tb_tx_outcomes, 1:7,
+      c("Cure", "Treatment Completed", "Treatment failed", "Died (any cause)",
+        "Lost to follow-up", "Transferred out from study site", "Not known")),
+    dwelling_location = apply_fmt(dwelling_location, c(1, 2, 3), c("City/urban area", "Peri-urban area", "Rural area")),
+    type_of_previous_tb = apply_fmt(type_of_previous_tb, c(1, 2, 3, 99),
+      c("Pulmonary", "Extrapulmonary", "Pulmonary and extrapulmonary", "Unknown")),
+    recent_tb_tx_outcome = apply_fmt(recent_tb_tx_outcome, c(1, 2, 3, 4, 5, 6, 99),
+      c("Cured", "Treatment completed", "Treatment failed", "Lost to follow-up",
+        "Transferred out", "Not evaluated", "Unknown")),
+    place_death = apply_fmt(place_death, c(1, 2, 88, 99), c("Home", "Hospital", "Other, specify", "Unknown")),
+    death_tb_related = apply_fmt(death_tb_related, 1:6,
+      c("Related/Defined", "Likely", "Possible", "Unlikely/Doubtful", "Not related", "Not applicable")),
+    death_medical_tx = apply_fmt(death_medical_tx, 1:6,
+      c("Related/Defined", "Likely", "Possible", "Unlikely/Doubtful", "Not related", "Not applicable")),
+    medical_cod = apply_fmt(medical_cod, 1:3,
+      c("Antiretroviral treatment", "Antituberculosis treatment", "Other medical treatment, specify")),
+    whendied = apply_fmt(whendied, 1:5,
+      c("Before month 1", "Before month 2", "Before EOT", "Before 6 month post", "Before 12 month post")),
+    duration_intensive = apply_fmt(duration_intensive, c(1, 88), c("2 months (standard)", "Other duration, specify")),
+    duration_maintenance = apply_fmt(duration_maintenance, c(1, 88), c("4 months (standard)", "Other duration, specify")),
+    death = apply_fmt(death, c(0, 1), c("No", "Yes")),
+    # UNKFMT-pattern comorbidity/history flags (0/1/99); previous code used a
+    # nonexistent "2" for No and dropped 99 ("Unknown") to plain NA.
+    across(c(previous_tb_treated, asthma_hx, copd_hx, pulmonary_fibrosis_hx,
+             pulmonary_hypertension_hx, diabetes_hx, tb_tx_failure,
+             microbiological_testing, additional_chest_xray, sudden_death,
+             death_unexpected, RecurrenceAfterEOT, TxFailAfterEOT),
+           yn_unk),
+    region = apply_fmt(region, c("CA", "CN", "EA", "WA"),
+      c("Central Africa", "Central/South America", "East Africa", "West Africa"))
   )
 
 # 2. Clean Visits Dataset
 df_visits_clean <- df_visits %>%
   mutate(
-    redcap_event_name = factor(
-      redcap_event_name,
-      levels = c(
-        "multivisit_forms_arm_1",
-        "baseline_arm_1",
-        "month_1_arm_1",
-        "month_2_arm_1",
-        "end_of_tx_arm_1",
-        "6m_posttx_arm_1",
-        "12m_posttx_arm_1",
-        "18m_posttx_arm_1",
-        "24m_posttx_arm_1",
-        "tx_frw_arm_1"
-      ),
-      labels = c(
-        "Multi-Visit-Forms",
-        "Baseline",
-        "Month 1",
-        "Month 2",
-        "End of TX",
-        "6-M Post-TX",
-        "12-M Post-TX",
-        "18-M Post-TX",
-        "24-M Post-TX",
-        "Tx F/R/W"
-      )
-    ),
-    region = factor(
-      region, 
-      levels = c("CA", "CN", "EA", "WA"), 
-      labels = c("Central Africa", "Central/South America", "East Africa", "West Africa")
-    )
+    redcap_event_name = apply_fmt(redcap_event_name,
+      c("multivisit_forms_arm_1", "baseline_arm_1", "month_1_arm_1", "month_2_arm_1",
+        "end_of_tx_arm_1", "6m_posttx_arm_1", "12m_posttx_arm_1", "18m_posttx_arm_1",
+        "24m_posttx_arm_1", "tx_frw_arm_1"),
+      c("Multi-Visit-Forms", "Baseline", "Month 1", "Month 2", "End of TX", "6-M Post-TX",
+        "12-M Post-TX", "18-M Post-TX", "24-M Post-TX", "Tx F/R/W")),
+    region = apply_fmt(region, c("CA", "CN", "EA", "WA"),
+      c("Central Africa", "Central/South America", "East Africa", "West Africa")),
+
+    # Symptom / test-result flags (0/1)
+    AnyRespSymptoms = apply_fmt(AnyRespSymptoms, c(0, 1), c("No", "Yes")),
+    PersistentRespSymptoms = apply_fmt(PersistentRespSymptoms, c(0, 1), c("No", "Yes")),
+    hypoxemia = apply_fmt(hypoxemia, c(0, 1), c("No", "Yes")),
+    S2SExertHypoxemia = apply_fmt(S2SExertHypoxemia, c(0, 1), c("No", "Yes")),
+    S2SRestingHypoxemia = apply_fmt(S2SRestingHypoxemia, c(0, 1), c("No", "Yes")),
+    CurrentAlcohol = apply_fmt(CurrentAlcohol, c(0, 1), c("No", "Yes")),
+    CurrentTobacco = apply_fmt(CurrentTobacco, c(0, 1), c("No", "Yes")),
+    CurrentInhalants = apply_fmt(CurrentInhalants, c(0, 1), c("No", "Yes")),
+
+    # UNKFMT-pattern symptom/adherence flags (0/1/99)
+    across(c(chest_pain, cough, haemoptysis, dyspnea, ab_pain, missed_tb_dose,
+             missed_dose_last_thirty), yn_unk),
+
+    # Spirometry
+    # NOTE: value 99 ("Unknown") is a real, non-missing response present in the
+    # data for these two; previous code used levels = c(1, 2) and dropped it.
+    obstructive_pattern = apply_fmt(obstructive_pattern, c(1, 2, 99), c("Yes", "No", "Unknown")),
+    restrictive_pattern = apply_fmt(restrictive_pattern, c(1, 2, 99), c("Yes", "No", "Unknown")),
+    # NOTE: 99 also occurs for broncho_response (256 records); not listed in the
+    # dictionary's SPIROBRONCHFMT definition, but consistent with the same
+    # Unknown convention used elsewhere, so it is added here explicitly.
+    broncho_response = apply_fmt(broncho_response, c(1, 2, 3, 99), c("No change", "Improved", "Normalized", "Unknown")),
+    fev1_severity = apply_fmt(fev1_severity, c(1, 2, 3, 4), c("80%-100%", "50-80%", "30-50%", "<30%")),
+    spirometry_grade = apply_fmt(spirometry_grade, c(1, 2, 3, 4, 6, 5), c("A", "B", "C", "D", "E", "F")),
+    spirometry_grade_2 = apply_fmt(spirometry_grade_2, c(1, 2, 3, 4, 6, 5), c("A", "B", "C", "D", "E", "F")),
+    interpreter = apply_fmt(interpreter, c(1, 2, 3, 88, 99),
+      c("Spirometry technician", "Pneumologist", "Spirometer itself", "Other", "Unknown")),
+    complete_spirometry = apply_fmt(complete_spirometry, c(1, 2, 3), c("Yes", "No", "Not done/not applicable")),
+    complete_spirometry_n = apply_fmt(complete_spirometry_n, c(1, 2, 3, 4, 88),
+      c("Too sick", "Delirious/Demented/Confused",
+        "Has contraindication (recent MI, surgery, PE, hemoptysis)",
+        "Attempted, but unable to get good quality test", "Other")),
+    complete_sit_test = apply_fmt(complete_sit_test, c(1, 2, 3), c("Yes", "No", "Not done/not applicable")),
+    complete_sit_test_n = apply_fmt(complete_sit_test_n, c(1, 2, 3, 88),
+      c("Too sick", "Delirious/Demented/Confused",
+        "Has lower extremity injury that prevents standing", "Other")),
+
+    # Smoking / tobacco
+    Smoker = apply_fmt(Smoker, c(0, 1, 2), c("Never smoker", "Current smoker", "Past smoker")),
+    tobacco_hx = apply_fmt(tobacco_hx, c(0, 1, 2), c("Never Used Tobacco", "Current Tobacco User", "Past Tobacco User")),
+    current_smoker = apply_fmt(current_smoker, c(1, 2, 99), c("Yes", "No", "Unknown")),
+    past_smoker = apply_fmt(past_smoker, c(1, 2, 99), c("Yes", "No", "Unknown")),
+    packsperday = apply_fmt(packsperday, 1:5, c("<=1/2 ppd", ">1/2 - 1 ppd", "1 - 1.5 ppd", ">1.5 - 2 ppd", ">2 ppd")),
+    number_cigarettes = apply_fmt(number_cigarettes, c(1, 2, 3, 4, 5, 6, 7, 8, 99),
+      c("Less than 1", "1-4", "5-10", "11-20", "21-30", "31-40", "More than 40",
+        "Other forms of tobacco, not cigarettes", "Unknown")),
+
+    # Chest x-ray
+    xray_performed = apply_fmt(xray_performed, c(1, 2, 99), c("Yes", "No", "Unknown")),
+    patient_identification = apply_fmt(patient_identification, c(1, 2), c("Appropriate", "Not appropriate")),
+    rotation = apply_fmt(rotation, c(1, 2), c("Absence or minimal", "Not acceptable")),
+    penetration = apply_fmt(penetration, c(1, 2), c("Good (vertebra visible behind heart)", "Not acceptable")),
+    inspiriation = apply_fmt(inspiriation, c(1, 2), c("Good (8th or 9th posterior rib visible)", "Not acceptable")),
+    xray_result = apply_fmt(xray_result, c(1, 2), c("Normal (in both lungs)", "Abnormal")),
+    defective_lung_flelds = apply_fmt(defective_lung_flelds, c(1, 2, 99), c("Yes", "No", "Unknown")),
+    # NOTE: value 3 ("Not possible to determine based on test") is a real,
+    # non-missing response present for all four of these; previous code used
+    # levels = c(1, 2) and dropped it to NA.
+    across(c(cavitation, miliary_lesions, alveolar_opacity, interstitial_opacity,
+             calcification, adenopathy, cardiac_silhouette, pleural_effusion, nodules_masses),
+           ~apply_fmt(., c(1, 2, 3), c("Yes (present)", "No (absent)", "Not possible to determine based on test"))),
+    across(c(cavitation_y, alveolar_opacity_y, interstitial_opacity_y),
+           ~apply_fmt(., c(1, 2), c("Unilateral", "Bilateral"))),
+    nodules_masses_y = apply_fmt(nodules_masses_y, c(1, 2), c("Single", "Multiple")),
+    lesion_size = apply_fmt(lesion_size, c(1, 2, 3), c("<1 cm", "1-5 cm", ">5 cm")),
+
+    # PHQ-9
+    across(c(phq9_1, phq9_2, phq9_3, phq9_4, phq9_5, phq9_6, phq9_7, phq9_8, phq9_9),
+           ~apply_fmt(., c(0, 1, 2, 3), c("Not at all", "Several days", "More than half the days", "Nearly every day"))),
+    phq9_how_difficult = apply_fmt(phq9_how_difficult, c(1, 2, 3, 4),
+      c("Not difficult at all", "Somewhat difficult", "Very difficult", "Extremely difficult")),
+
+    # SGRQ
+    sgrq_curr_health = apply_fmt(sgrq_curr_health, c(1, 2, 3, 4, 5), c("Very good", "Good", "Fair", "Poor", "Very Poor")),
+    across(c(sgrq_q1_cough, sgrq_q1_sputum, sgrq_q1_breath, sgrq_q1_attacks),
+           ~apply_fmt(., c(1, 2, 3, 4, 0),
+                      c("Most days a week", "Several days a week", "A few days a month",
+                        "Only with chest infections", "Not at all"))),
+    sgrq_attacks = apply_fmt(sgrq_attacks, c(1, 2, 3, 4, 0), c("More than 3 attacks", "3 attacks", "2 attacks", "1 attack", "No attack")),
+    sgrq_attack_duration = apply_fmt(sgrq_attack_duration, c(1, 2, 3, 4), c("A week or more", "3 or more days", "1 or 2 days", "Less than a day")),
+    sgrq_good_days = apply_fmt(sgrq_good_days, c(0, 1, 2, 3, 4),
+      c("No good days", "1 or 2 good days", "3 or 4 good days", "Nearly every day is good", "Every day is good")),
+    sgrq_condition = apply_fmt(sgrq_condition, c(1, 2, 3, 4),
+      c("The most important problem I have", "Causes me quite a lot of problem", "Causes me a few problems", "Causes no problem")),
+    sgrq_employment = apply_fmt(sgrq_employment, c(1, 2, 3),
+      c("Chest trouble made me stop work altogether", "Chest trouble interferes with/changed my work", "Chest trouble does not affect my work")),
+    sgrq_affecting_chest = apply_fmt(sgrq_affecting_chest, c(1, 2, 3, 4),
+      c("Does not stop me doing anything I would like to do",
+        "Stops me doing one or two things I would like to do",
+        "Stops me doing most of the things I would like to do",
+        "Stops me doing everything I would like to do")),
+    sgrq_wheeze = apply_fmt(sgrq_wheeze, c(0, 1, 99), c("No", "Yes", "Unknown")),
+    # Proxy for a genuinely-conducted SGRQ assessment: the Symptom subscale is
+    # built entirely from radio/select items (true item-level missingness),
+    # unlike Activity/Impact which are mostly REDCap checkboxes that default to
+    # 0 and can never register as missing within a submitted form. Visits where
+    # Symptom is NA overwhelmingly also have PHQ-9, cough, etc. missing --
+    # i.e. they look like unconducted/abandoned assessments, not just an SGRQ-
+    # specific gap. See conversation history for the supporting analysis.
+    sgrq_genuinely_administered = !is.na(SGRQ_SYMPTOM_SCORE),
+
+    # ASSIST
+    across(c(assist3_q1a_sc, assist3_q1b_sc, assist3_q1c_sc, assist3_q1d_sc, assist3_q1e_sc,
+             assist3_q1f_sc, assist3_q1g_sc, assist3_q1h_sc, assist3_q1i_sc, assist3_q1j_sc),
+           ~apply_fmt(., c(0, 3), c("No", "Yes"))),
+    across(c(assist3_q2a_sc, assist3_q2b_sc, assist3_q2c_sc, assist3_q2d_sc, assist3_q2e_sc,
+             assist3_q2f_sc, assist3_q2g_sc, assist3_q2h_sc, assist3_q2i_sc, assist3_q2j_sc),
+           ~apply_fmt(., c(0, 2, 3, 4, 6), c("Never", "Once or Twice", "Monthly", "Weekly", "Daily or Almost Daily")))
   ) %>%
+  # Per Neelima's guidance (team meeting): restrict lung-function classification
+  # and raw spirometry measurements to visits with an acceptable spirometry
+  # quality grade (A, B, or C). Records graded D, E, or F have their
+  # obstructive/restrictive pattern and liters/severity values blanked out,
+  # rather than being taken at face value. Pre-bronchodilator measures use
+  # `spirometry_grade`; post-bronchodilator ("_2") measures use the separate
+  # post-bronchodilator grade, `spirometry_grade_2`.
   mutate(
-    AnyRespSymptoms = factor(AnyRespSymptoms, levels = c(0, 1), labels = c("No", "Yes")),
-    PersistentRespSymptoms = factor(PersistentRespSymptoms, levels = c(0, 1), labels = c("No", "Yes")),
-    hypoxemia = factor(hypoxemia, levels = c(0, 1), labels = c("No", "Yes")),
-    obstructive_pattern = factor(obstructive_pattern, levels = c(1, 2), labels = c("Yes", "No")),
-    restrictive_pattern = factor(restrictive_pattern, levels = c(1, 2), labels = c("Yes", "No")),
-    complete_spirometry = factor(complete_spirometry, levels = c(1, 2, 3), labels = c("Yes", "No", "Not applicable")),
-    Smoker = factor(Smoker, levels = c(0, 1, 2), labels = c("Never smoker", "Current smoker", "Past smoker")),
-    tobacco_hx = factor(tobacco_hx, levels = c(0, 1, 2), labels = c("Never Used Tobacco", "Current Tobacco User", "Past Tobacco User")),
-    missed_dose_last_thirty = factor(missed_dose_last_thirty, levels = c(0, 1), labels = c("No", "Yes")),
-    packsperday = factor(packsperday, levels = 1:5, labels = c("<=1/2", ">1/2 - 1", "1 - 1.5", ">1.5 - 2", ">2")),
-    S2SExertHypoxemia = factor(S2SExertHypoxemia, levels = c(0, 1), labels = c("No", "Yes"))
-  ) %>%
-  mutate(across(c(cavitation, nodules_masses, alveolar_opacity, pleural_effusion), 
-                ~factor(., levels = c(1, 2), labels = c("Yes", "No"))))
+    obstructive_pattern = if_else(spirometry_grade %in% c("A", "B", "C"), obstructive_pattern, NA),
+    restrictive_pattern = if_else(spirometry_grade %in% c("A", "B", "C"), restrictive_pattern, NA),
+    across(c(fev1_liters, fvc_liters, fef_liters, fev1_severity, pef_liters_per_sec),
+           ~ grade_restrict(.x, spirometry_grade)),
+    across(c(fev1_liters_2, fvc_liters_2, fef_liters_2, pef_liters_per_sec_2),
+           ~ grade_restrict(.x, spirometry_grade_2))
+  )
 
 # 2b. Clean 6-month Visits Dataset
 df_6m_visit <- df_visits_clean %>%
   filter(redcap_event_name == "6-M Post-TX")
   
 
-# 3. Pull End-of-Treatment (EOT) Imaging variables for clustering
-# Prefix them with 'eot_' to prevent join collisions and clarify the timepoint
+# 3. Pull End-of-Treatment (EOT) and Baseline Imaging variables for clustering
+# Prefix them to prevent join collisions and clarify the timepoint
 df_eot_imaging <- df_visits_clean %>%
   filter(redcap_event_name == "End of TX") %>%
   select(
@@ -178,18 +309,45 @@ df_eot_imaging <- df_visits_clean %>%
     eot_cavitation = cavitation, 
     eot_nodules_masses = nodules_masses, 
     eot_alveolar_opacity = alveolar_opacity, 
-    eot_pleural_effusion = pleural_effusion
+    eot_pleural_effusion = pleural_effusion,
+    eot_percentage_affected_lung = percentage_affected_lung
+  )
+
+df_baseline_imaging <- df_visits_clean %>%
+  filter(redcap_event_name == "Baseline") %>%
+  select(
+    patient,
+    baseline_cavitation = cavitation,
+    baseline_percentage_affected_lung = percentage_affected_lung
+  )
+
+# Duration of symptoms prior to TB treatment initiation (requested for cluster
+# analysis). NOTE: this has real data-quality problems worth flagging -- a
+# meaningful number of records show a *negative* duration (treatment initiation
+# date before reported symptom-start date) or implausibly long durations
+# (multiple years), which likely reflect date-entry errors rather than true
+# symptom duration. The variable is included below as computed, unfiltered;
+# it should be reviewed before use in modeling.
+df_symptom_duration <- df_demog %>%
+  transmute(
+    patient,
+    duration_symptoms_days = as.numeric(date_tb_tx_initiation - symptom_start_date)
   )
 
 # 4. Master Join and PTLD Classification (Updated for Strict Missingness)
 df_master <- df_demog_clean %>%
   inner_join(df_6m_visit, by = c("patient", "region")) %>%
   left_join(df_eot_imaging, by = "patient") %>%
+  left_join(df_baseline_imaging, by = "patient") %>%
+  left_join(df_symptom_duration, by = "patient") %>%
   mutate(
     # PTLD Antecedent Requirements
     successful_tx = if_else(tb_tx_outcomes %in% c("Cure", "Treatment Completed"), "Yes", "No"),
-    no_active_tb = if_else(is.na(RecurrenceAfterEOT) | RecurrenceAfterEOT != 1, "Yes", "No"),
-    no_tx_fail = if_else(is.na(TxFailAfterEOT) | TxFailAfterEOT != 1, "Yes", "No"),
+    # RecurrenceAfterEOT/TxFailAfterEOT are now "No"/"Yes"/"Unknown" factors
+    # (see df_demog_clean); missing or "Unknown" recurrence/failure status is
+    # treated as not disqualifying, matching the previous numeric behavior.
+    no_active_tb = if_else(is.na(RecurrenceAfterEOT) | RecurrenceAfterEOT != "Yes", "Yes", "No"),
+    no_tx_fail = if_else(is.na(TxFailAfterEOT) | TxFailAfterEOT != "Yes", "Yes", "No"),
     antecedent_met = if_else(successful_tx == "Yes" & no_active_tb == "Yes" & no_tx_fail == "Yes", "Yes", "No"),
 
     # PTLD Domains - Explicitly handling NAs
@@ -235,8 +393,25 @@ df_master <- df_demog_clean %>%
   )
 
 # 5. Apply Variable Labels (Labelled Package)
+# Most variables already carry a correct, dictionary-matching label imported
+# by haven::read_sas() and preserved through recoding by the relabel()/apply_fmt()
+# helpers above (select()-based renaming, e.g. `eot_cavitation = cavitation`,
+# also carries the label over). Only genuinely new/derived variables --
+# created via mutate()/case_when()/if_else(), which have no SAS label to
+# inherit -- need one applied manually here.
 df_master <- df_master %>%
   set_variable_labels(
+    successful_tx = "Requirement 1: Successfully Treated (Cured/Completed)",
+    no_active_tb = "Requirement 2a: No Active TB (No Recurrence)",
+    no_tx_fail = "Requirement 2b: No Active TB (No Post-EOT Failure)",
+    antecedent_met = "ALL Antecedent Requirements Met (Eligible for PTLD Evaluation)",
+    domain_symptoms = "PTLD Domain: Persistent Respiratory Symptoms Met",
+    domain_lung_function = "PTLD Domain: Abnormal Lung Function Met",
+    domain_imaging = "PTLD Domain: Imaging Abnormality Met",
+    ptld_classification = "PTLD Consensus Classification",
+    ptld_subcategory = "PTLD Sub-category (Domains)",
+    duration_symptoms_days = "Duration of Symptoms Prior to TB Treatment (days)",
+    
     # Demographics & Clinical Base
     region = "Study Region",
     current_age = "Age (years)",
@@ -282,6 +457,7 @@ df_master <- df_master %>%
     eot_alveolar_opacity = "CXR (EOT): Alveolar Opacity",
     eot_pleural_effusion = "CXR (EOT): Pleural Effusion"
   )
+
 ```
 
 
@@ -298,6 +474,14 @@ df_visits_clean %>%
 
 df_master %>%
   tbl_cross(PersistentRespSymptoms, AnyRespSymptoms)
+
+df_demog_clean$spiro
+df_visits_clean$spirometry_grade
+
+df_visits_clean %>%
+  tbl_summary(
+    include = contains("spirometry_grade"),
+    by = redcap_event_name)
 
 ```
 
@@ -355,10 +539,11 @@ df_retention_wide %>%
 # Demographic and Clinical Characteristics
 
 ```{r table_demographics}
+
 df_master %>%
   select(
     region, current_age, sex_at_birth, hivstatus, bmi, bsa,
-    tb_category, resistance_pattern, asthma_hx, copd_hx, diabetes_hx,
+    tb_category, type_of_previous_tb, resistance_pattern, asthma_hx, copd_hx, diabetes_hx,
     tb_tx_outcomes, previous_tb_treated, dwelling_location
   ) %>%
   tbl_summary(
@@ -368,7 +553,7 @@ df_master %>%
       all_categorical() ~ "{n} ({p}%)"
     ),
     missing = "ifany",
-    missing_text = "Missing/Not Assessed"
+    missing_text = "Missing"
   ) %>%
   add_overall() %>%
   modify_header(label = "**Demographic & Clinical Variable**") %>%
@@ -404,11 +589,8 @@ df_master %>%
     no_tx_fail,
     antecedent_met
   ) %>%
-  # Temporarily format the raw EOT numeric flags as Yes/No for cleaner table output
-  mutate(
-    RecurrenceAfterEOT = factor(RecurrenceAfterEOT, levels = c(0, 1), labels = c("No", "Yes")),
-    TxFailAfterEOT = factor(TxFailAfterEOT, levels = c(0, 1), labels = c("No", "Yes"))
-  ) %>%
+  # RecurrenceAfterEOT/TxFailAfterEOT already arrive as "No"/"Yes"/"Unknown"
+  # factors from df_demog_clean, so no re-factoring is needed here.
   # Apply clear labels for the summary table
   set_variable_labels(
     tb_tx_outcomes = "Raw TB Treatment Outcome",
@@ -422,7 +604,7 @@ df_master %>%
   tbl_summary(
     statistic = list(all_categorical() ~ "{n} ({p}%)"),
     missing = "ifany",
-    missing_text = "Missing/Unknown"
+    missing_text = "Missing"
   ) %>%
   modify_header(label = "**Antecedent Requirement**") %>%
   bold_labels()  %>%
@@ -448,14 +630,14 @@ By the definition currently applied in the table below, patients who meet one of
 df_master %>%
   filter(antecedent_met == "Yes") %>%
   select(
-    complete_spirometry, obstructive_pattern, restrictive_pattern,
+    complete_spirometry, spirometry_grade, obstructive_pattern, restrictive_pattern,
     hypoxemia, AnyRespSymptoms, PersistentRespSymptoms,
     ptld_classification, ptld_subcategory
   ) %>%
   tbl_summary(
     statistic = list(all_categorical() ~ "{n} ({p}%)"),
     missing = "ifany",
-    missing_text = "Missing/Not Assessed"
+    missing_text = "Missing"
   ) %>%
   modify_header(label = "**Reporting Framework Variable**") %>%
   bold_labels() %>%
@@ -511,17 +693,21 @@ These variables capture physiological state, comorbidities, and imaging phenotyp
 ```{r table_clustering}
 df_master %>%
   select(
-    Smoker, tobacco_hx, packsperday, a1c_percent, missed_dose_last_thirty,
-    fev1_liters, fvc_liters, eot_cavitation, eot_nodules_masses, 
-    eot_alveolar_opacity, eot_pleural_effusion
+    region, Smoker, tobacco_hx, packsperday, a1c_percent, 
+    # missed_dose_last_thirty,
+    duration_symptoms_days,
+    fev1_liters, fvc_liters,
+    eot_cavitation, eot_nodules_masses, eot_alveolar_opacity, eot_pleural_effusion
   ) %>%
   tbl_summary(
+    type = all_continuous() ~ "continuous2",
     statistic = list(
-      all_continuous() ~ "{median} ({p25}, {p75})",
+      all_continuous2() ~ c("{median} ({p25}, {p75})",
+                            "{min}, {max}"),
       all_categorical() ~ "{n} ({p}%)"
     ),
     missing = "ifany",
-    missing_text = "Missing/Not Assessed"
+    missing_text = "Missing"
   ) %>%
   modify_header(label = "**Clustering Feature**") %>%
   bold_labels()  %>%
@@ -534,7 +720,31 @@ df_master %>%
   set_table_properties(layout = "autofit") %>%
   font(fontname = "Calibri", part = "all") %>%
   fontsize(size = 11, part = "all")
+
 ```
+
+## Examine duration of symptoms prior to treatment
+
+Likely some data entry errors: negative values and very large values
+
+```{r}
+
+ggplot(df_master, aes(x = duration_symptoms_days)) +
+  geom_histogram(binwidth = 30) +
+  labs(x = "Duration of Symptoms Prior to TB Treatment (days)", y = "Count")
+
+df_master %>%
+  summarise(
+    n_negative = sum(duration_symptoms_days < 0, na.rm = TRUE),
+    n_over_365 = sum(duration_symptoms_days > 365, na.rm = TRUE),
+    n_missing = sum(is.na(duration_symptoms_days)),
+    n_total = n()
+  ) %>%
+  flextable() %>%
+  autofit()
+
+```
+
 
 \newpage
 
@@ -544,17 +754,20 @@ These variables measure the downstream functional and quality-of-life impact of 
 
 ```{r table_outcomes_site}
 df_master %>%
+  # PHQ9 removed from outcomes per Neelima's guidance (team meeting)
   select(
-    region, SGRQ_TOTAL_SCORE, phq9_total, min_completion_rate, S2SExertHypoxemia
+    region, SGRQ_TOTAL_SCORE, min_completion_rate, S2SExertHypoxemia
   ) %>%
   tbl_summary(
     by = region,
+    type = all_continuous() ~ "continuous2",
     statistic = list(
-      all_continuous() ~ "{median} ({p25}, {p75})",
+      all_continuous2() ~ c("{median} ({p25}, {p75})",
+                            "{min}, {max}"),
       all_categorical() ~ "{n} ({p}%)"
     ),
     missing = "ifany",
-    missing_text = "Missing/Not Assessed"
+    missing_text = "Missing"
   ) %>%
   modify_header(label = "**6-Month Outcome Variable**") %>%
   add_overall() %>%
@@ -578,17 +791,20 @@ df_master %>%
 
 df_visits_clean %>%
   mutate(redcap_event_name = fct_drop(redcap_event_name)) %>%
+  # PHQ9 removed from outcomes per Neelima's guidance (team meeting)
   select(
-    redcap_event_name, SGRQ_TOTAL_SCORE, phq9_total, min_completion_rate, S2SExertHypoxemia
+    redcap_event_name, SGRQ_TOTAL_SCORE, min_completion_rate, S2SExertHypoxemia
   ) %>%
   tbl_summary(
     by = redcap_event_name,
+    type = all_continuous() ~ "continuous2",
     statistic = list(
-      all_continuous() ~ "{median} ({p25}, {p75})",
+      all_continuous2() ~ c("{median} ({p25}, {p75})",
+                            "{min}, {max}"),
       all_categorical() ~ "{n} ({p}%)"
     ),
     missing = "ifany",
-    missing_text = "Missing/Not Assessed"
+    missing_text = "Missing"
   ) %>%
   modify_header(label = "**Outcome Variable**") %>%
   add_overall() %>%
@@ -605,8 +821,124 @@ df_visits_clean %>%
 
 ```
 
-<!-- # Missing Data Analysis -->
 
+## Examine SGRQ variables
+
+### Distribution of SGRQ total score, by region and timepoint
+
+```{r}
+
+# All non-NA total scores
+
+df_visits_clean %>%
+  filter(!(redcap_event_name %in% c("Month 1", "Month 2"))) %>%
+  ggplot() +
+  geom_histogram(aes(x = SGRQ_TOTAL_SCORE), binwidth = 1) +
+  facet_grid(redcap_event_name ~ region)
+
+```
+
+### Distribution of SGRQ total score, by region and timepoint, excluding observations where the SGRQ Symptoms subscore is missing (as a proxy, in an attempt to exclude observations where SGRQ was not measured but was scored as 0).
+
+```{r}
+
+# Exclude NA symptom score
+
+df_visits_clean %>%
+  filter(!is.na(SGRQ_SYMPTOM_SCORE)) %>%
+  filter(!(redcap_event_name %in% c("Month 1", "Month 2"))) %>%
+  ggplot() +
+  geom_histogram(aes(x = SGRQ_TOTAL_SCORE), binwidth = 1) +
+  facet_grid(redcap_event_name ~ region)
+
+```
+
+
+### Frequently occurring response patterns for SGRQ
+
+```{r, eval = FALSE}
+
+# top10_symptom <- df_visits %>%
+#   filter(!is.na(SGRQ_SYMPTOM_SCORE)) %>%
+#   count(region, redcap_event_name, SGRQ_SYMPTOM_SCORE, name = "n") %>%
+#   group_by(region, redcap_event_name) %>%
+#   slice_max(n, n = 10, with_ties = FALSE) %>%
+#   arrange(region, redcap_event_name, desc(n)) %>%
+#   ungroup()
+# 
+# top10_total <- df_visits %>%
+#   filter(!is.na(SGRQ_TOTAL_SCORE)) %>%
+#   count(region, redcap_event_name, SGRQ_TOTAL_SCORE, name = "n") %>%
+#   group_by(region, redcap_event_name) %>%
+#   slice_max(n, n = 10, with_ties = FALSE) %>%
+#   arrange(region, redcap_event_name, desc(n)) %>%
+#   ungroup()
+
+top10_combined <- df_visits %>%
+  filter(!is.na(SGRQ_TOTAL_SCORE) ) %>%
+  count(region, redcap_event_name, SGRQ_TOTAL_SCORE, SGRQ_SYMPTOM_SCORE, name = "n") %>%
+  group_by(region, redcap_event_name) %>%
+  slice_max(n, n = 10, with_ties = FALSE) %>%
+  arrange(region, redcap_event_name, desc(n)) %>%
+  ungroup()
+
+# top10_symptom
+# top10_total
+# top5_combined %>%
+#   filter(n > 10)
+top10_combined %>%
+  filter(n > 10)
+
+
+# df_visits %>%
+#   filter(!is.na(SGRQ_TOTAL_SCORE)) %>%
+#   select(contains("SGRQ") | contains("sgrq")) %>%
+#   filter(near(SGRQ_TOTAL_SCORE, 0.4315055)) %>%
+#   count(across(everything()))
+# 
+# df_visits %>%
+#   filter(!is.na(SGRQ_TOTAL_SCORE)) %>%
+#   select(contains("SGRQ") | contains("sgrq")) %>%
+#   filter(near(SGRQ_TOTAL_SCORE, 8.4827038)) %>%
+#   count(across(everything()))
+
+```
+
+
+### Count of non-zero SGRQ scores by region and timepoint
+#### Also excluding observations with SGRQ score of 8.4827, which is the suspicious spike in the histogram of scores in West Africa above
+
+
+```{r}
+
+non_zero_SGRQ_counts <- df_visits_clean %>%
+  filter(!is.na(SGRQ_SYMPTOM_SCORE) & SGRQ_TOTAL_SCORE != 0) %>%
+  # filter(!near(SGRQ_TOTAL_SCORE, 0.4315055)) %>%
+  filter(!near(SGRQ_TOTAL_SCORE, 8.4827038)) %>%
+  count(redcap_event_name, region, name = "n") %>%
+  arrange(redcap_event_name, region)
+# %>%
+
+# non_zero_SGRQ_counts
+
+ggplot(non_zero_SGRQ_counts, aes(x = redcap_event_name, y = n, fill = region)) +
+  geom_col(position = "dodge") +
+  labs(
+    # title = "Non-Zero SGRQ Total Scores by Event and Region",
+    x = "Timepoint",
+    y = "Count",
+    fill = "Region"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+
+<!--   labs(title = "Missing Values in Core PTLD Definition Variables (Eligible Cohort)", -->
+<!--        y = "Number of missing cases") + -->
+<!--   theme_minimal() -->
 <!-- ## Missingness in Core PTLD Variables -->
 
 <!-- ```{r missing_ptld_vars} -->
