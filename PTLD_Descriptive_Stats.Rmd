@@ -491,7 +491,7 @@ df_visits_clean %>%
 ```{r table_visit_retention_fixed}
 # 1. Create a wide dataset: One row per patient in the baseline cohort
 df_retention_wide <- df_demog_clean %>%
-  select(patient) %>% # Establishes the fixed denominator (Total N)
+  select(patient, region) %>% # Establishes the fixed denominator (Total N)
   left_join(
     df_visits_clean %>%
       # Keep only patient and visit name, removing any duplicate rows per visit
@@ -508,21 +508,22 @@ df_retention_wide <- df_demog_clean %>%
     names_sort = TRUE # Forces columns to sort by factor levels 
   ) %>%
   # Convert 1/0 flags to Yes/No factors for clean table output
-  mutate(across(-patient, ~factor(., levels = c(1, 0), labels = c("Yes", "No"))))
+  mutate(across(-c(region, patient), ~factor(., levels = c(1, 0), labels = c("Yes", "No"))))
 
 # 2. Generate the summary table
 df_retention_wide %>%
   select(-patient) %>% # Remove the ID column so it isn't summarized
   tbl_summary(
+    by = region, 
     # Tell gtsummary to ONLY show the count/percentage of "Yes" for each column
     value = list(everything() ~ "Yes"), 
     missing = "no" # We explicitly handled missingness with the 0 fill above
   ) %>%
+  add_overall() %>%
   modify_header(
-    label = "**Study Visit Timepoint**",
-    stat_0 = "**Patients Retained (N = {N})**"
+    label = "**Study Visit Timepoint**"
   ) %>%
-  modify_caption("**Patient Retention by Visit (Denominator = Full Baseline Cohort)**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Patients Retained**") %>%
   bold_labels()  %>%
   as_flex_table() %>% 
   flextable::set_caption('Follow-up retention by timepoint',
@@ -582,6 +583,7 @@ df_master %>%
 df_master %>%
   # Select the raw variables and the derived antecedent flags
   select(
+    region, 
     tb_tx_outcomes,
     successful_tx,
     RecurrenceAfterEOT,
@@ -603,10 +605,12 @@ df_master %>%
     antecedent_met = "ALL Antecedent Requirements Met (Eligible for PTLD Evaluation)"
   ) %>%
   tbl_summary(
+    by = region,
     statistic = list(all_categorical() ~ "{n} ({p}%)"),
     missing = "ifany",
     missing_text = "Missing"
   ) %>%
+  add_overall() %>%
   modify_header(label = "**Antecedent Requirement**") %>%
   bold_labels()  %>%
   as_flex_table() %>% 
@@ -631,15 +635,17 @@ By the definition currently applied in the table below, patients who meet one of
 df_master %>%
   filter(antecedent_met == "Yes") %>%
   select(
-    complete_spirometry, spirometry_grade, obstructive_pattern, restrictive_pattern,
+    region, complete_spirometry, spirometry_grade, obstructive_pattern, restrictive_pattern,
     hypoxemia, AnyRespSymptoms, PersistentRespSymptoms,
     ptld_classification, ptld_subcategory
   ) %>%
   tbl_summary(
     statistic = list(all_categorical() ~ "{n} ({p}%)"),
     missing = "ifany",
-    missing_text = "Missing"
+    missing_text = "Missing",
+    by = region
   ) %>%
+  add_overall() %>%
   modify_header(label = "**Reporting Framework Variable**") %>%
   bold_labels() %>%
   as_flex_table() %>% 
