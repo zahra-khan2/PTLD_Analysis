@@ -461,6 +461,21 @@ df_master <- df_master %>%
 
 ```
 
+```{r}
+
+df_master %>%
+  tbl_cross(AnyRespSymptomsSum, PersistentRespSymptomsSum)
+
+df_master %>%
+  tbl_summary(
+    include = sgrq
+  )
+
+look
+
+```
+
+
 
 ```{r, eval = FALSE}
 
@@ -722,6 +737,172 @@ df_master %>%
   flextable::set_caption('Potential variables for cluster analysis',
                          autonum = officer::run_autonum(seq_id = "tab",
                                                         bkm = "VarsCluster")) %>%
+  bold(bold = TRUE, part = "header") %>%
+  autofit() %>%
+  set_table_properties(layout = "autofit") %>%
+  font(fontname = "Calibri", part = "all") %>%
+  fontsize(size = 11, part = "all")
+
+```
+
+## Multiple timepoints
+
+```{r table_clustering_longitudinal}
+df_visits_clean %>%
+  # Filter to the requested timepoints
+  filter(redcap_event_name %in% c("Baseline", "Month 1", "Month 2", "End of TX")) %>%
+  # Join the symptom duration data (calculated once per patient in df_symptom_duration)
+  left_join(df_symptom_duration, by = "patient") %>%
+  # Drop unused event factor levels so they don't generate empty columns in the table
+  mutate(redcap_event_name = fct_drop(redcap_event_name)) %>%
+  select(
+    redcap_event_name, region, 
+    Smoker, tobacco_hx, current_smoker, CurrentTobacco, packsperday,
+    CurrentAlcohol, a1c_percent, 
+    duration_symptoms_days,
+    fev1_liters, fvc_liters,
+    cavitation, nodules_masses, alveolar_opacity, pleural_effusion
+  ) %>%
+  # Stratify by the timepoint
+  tbl_summary(
+    by = redcap_event_name,
+    type = all_continuous() ~ "continuous2",
+    statistic = list(
+      all_continuous2() ~ c("{median} ({p25}, {p75})",
+                            "{min}, {max}"),
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    missing = "ifany",
+    missing_text = "Missing"
+  ) %>%
+  modify_header(label = "**Clustering Feature**") %>%
+  # add_overall() %>% # Optional: remove if you don't want a combined total column
+  bold_labels()  %>%
+  as_flex_table() %>% 
+  flextable::set_caption('Potential variables for cluster analysis by timepoint',
+                         autonum = officer::run_autonum(seq_id = "tab",
+                                                        bkm = "VarsClusterTimepoint")) %>%
+  bold(bold = TRUE, part = "header") %>%
+  autofit() %>%
+  set_table_properties(layout = "autofit") %>%
+  font(fontname = "Calibri", part = "all") %>%
+  fontsize(size = 11, part = "all")
+
+```
+
+### Baseline values by region
+
+```{r table_clustering_baseline}
+
+df_visits_clean %>%
+  # Filter to the requested timepoints
+  filter(redcap_event_name %in% c("Baseline")) %>%
+  # Join the symptom duration data (calculated once per patient in df_symptom_duration)
+  left_join(df_symptom_duration, by = "patient") %>%
+  # Drop unused event factor levels so they don't generate empty columns in the table
+  mutate(redcap_event_name = fct_drop(redcap_event_name)) %>%
+  select(
+    redcap_event_name, region, 
+    Smoker, tobacco_hx, current_smoker, CurrentTobacco, packsperday,
+    CurrentAlcohol, a1c_percent, 
+    duration_symptoms_days,
+    fev1_liters, fvc_liters,
+    cavitation, nodules_masses, alveolar_opacity, pleural_effusion
+  ) %>%
+  # Stratify by the region
+  tbl_summary(
+    by = region,
+    type = all_continuous() ~ "continuous2",
+    statistic = list(
+      all_continuous2() ~ c("{median} ({p25}, {p75})",
+                            "{min}, {max}"),
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    missing = "ifany",
+    missing_text = "Missing"
+  ) %>%
+  modify_header(label = "**Clustering Feature**") %>%
+  # add_overall() %>% # Optional: remove if you don't want a combined total column
+  bold_labels()  %>%
+  as_flex_table() %>% 
+  flextable::set_caption('Potential variables (baseline) for cluster analysis by region',
+                         autonum = officer::run_autonum(seq_id = "tab",
+                                                        bkm = "VarsClusterBaseline")) %>%
+  bold(bold = TRUE, part = "header") %>%
+  autofit() %>%
+  set_table_properties(layout = "autofit") %>%
+  font(fontname = "Calibri", part = "all") %>%
+  fontsize(size = 11, part = "all")
+
+```
+
+```{r, eval = F}
+
+df_visits_clean %>%
+  tbl_cross(current_smoker, Smoker)
+
+df_visits_clean %>%
+  tbl_cross(current_smoker, tobacco_hx)
+
+df_visits_clean %>%
+  tbl_cross(Smoker, tobacco_hx)
+
+df_visits_clean %>%
+  filter(redcap_event_name %in% "Baseline") %>%
+  tbl_cross(CurrentTobacco, tobacco_hx)
+
+df_visits_clean %>%
+  filter(redcap_event_name %in% "End of TX") %>%
+  tbl_cross(CurrentTobacco, tobacco_hx)
+
+df_visits_clean %>%
+  filter(redcap_event_name %in% "Baseline") %>%
+  tbl_cross(current_smoker, Smoker)
+
+df_visits_clean %>%
+  filter(redcap_event_name %in% "End of TX") %>%
+  tbl_cross(current_smoker, Smoker)
+
+```
+
+### EOT values by region
+
+```{r table_clustering_eot}
+
+df_visits_clean %>%
+  # Filter to the requested timepoints
+  filter(redcap_event_name %in% c("End of TX")) %>%
+  # Join the symptom duration data (calculated once per patient in df_symptom_duration)
+  left_join(df_symptom_duration, by = "patient") %>%
+  # Drop unused event factor levels so they don't generate empty columns in the table
+  mutate(redcap_event_name = fct_drop(redcap_event_name)) %>%
+  select(
+    redcap_event_name, region, 
+    Smoker, tobacco_hx, current_smoker, CurrentTobacco, packsperday,
+    CurrentAlcohol, a1c_percent, 
+    duration_symptoms_days,
+    fev1_liters, fvc_liters,
+    cavitation, nodules_masses, alveolar_opacity, pleural_effusion
+  ) %>%
+  # Stratify by the region
+  tbl_summary(
+    by = region,
+    type = all_continuous() ~ "continuous2",
+    statistic = list(
+      all_continuous2() ~ c("{median} ({p25}, {p75})",
+                            "{min}, {max}"),
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    missing = "ifany",
+    missing_text = "Missing"
+  ) %>%
+  modify_header(label = "**Clustering Feature**") %>%
+  # add_overall() %>% # Optional: remove if you don't want a combined total column
+  bold_labels()  %>%
+  as_flex_table() %>% 
+  flextable::set_caption('Potential variables (end of treatment) for cluster analysis by region',
+                         autonum = officer::run_autonum(seq_id = "tab",
+                                                        bkm = "VarsClusterEOT")) %>%
   bold(bold = TRUE, part = "header") %>%
   autofit() %>%
   set_table_properties(layout = "autofit") %>%
