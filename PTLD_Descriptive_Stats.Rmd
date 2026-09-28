@@ -11,7 +11,7 @@ output:
 knit: (function(input, ...) {
     rmarkdown::render(
       input,
-      output_dir = "../Results",  
+      output_dir = "Results",  
     )
   })
 ---
@@ -461,20 +461,6 @@ df_master <- df_master %>%
 
 ```
 
-```{r}
-
-df_master %>%
-  tbl_cross(AnyRespSymptomsSum, PersistentRespSymptomsSum)
-
-df_master %>%
-  tbl_summary(
-    include = sgrq
-  )
-
-look
-
-```
-
 
 
 ```{r, eval = FALSE}
@@ -488,8 +474,7 @@ df_visits_clean %>%
     by = redcap_event_name
   )
 
-df_master %>%
-  tbl_cross(PersistentRespSymptoms, AnyRespSymptoms)
+
 
 df_demog_clean$spiro
 df_visits_clean$spirometry_grade
@@ -497,7 +482,8 @@ df_visits_clean$spirometry_grade
 df_visits_clean %>%
   tbl_summary(
     include = contains("spirometry_grade"),
-    by = redcap_event_name)
+    by = redcap_event_name,
+    missing_text = "Missing")
 
 ```
 
@@ -674,6 +660,44 @@ df_master %>%
   fontsize(size = 11, part = "all")
 ```
 
+### Compare "Any respiratory symptoms" to "Persistent respiratory symptoms"
+
+```{r}
+
+df_master %>%
+  tbl_cross(PersistentRespSymptoms, AnyRespSymptoms,
+    missing_text = "Missing") %>%
+  as_flex_table() %>% 
+  flextable::set_caption('"Any respiratory symptoms" vs "Persistent respiratory symptoms" (binary) at 6-month post-treatment visit',
+                         autonum = officer::run_autonum(seq_id = "tab",
+                                                        bkm = "respSymptomsBinary")) %>%
+  bold(bold = TRUE, part = "header") %>%
+  autofit() %>%
+  set_table_properties(layout = "autofit") %>%
+  font(fontname = "Calibri", part = "all") %>%
+  fontsize(size = 11, part = "all")
+
+```
+
+
+```{r}
+
+df_master %>%
+  tbl_cross(AnyRespSymptomsSum, PersistentRespSymptomsSum,
+    missing_text = "Missing") %>%
+  as_flex_table() %>% 
+  flextable::set_caption('"Any respiratory symptoms" vs "Persistent respiratory symptoms" (sum) at 6-month post-treatment visit',
+                         autonum = officer::run_autonum(seq_id = "tab",
+                                                        bkm = "respSymptomsSum")) %>%
+  bold(bold = TRUE, part = "header") %>%
+  autofit() %>%
+  set_table_properties(layout = "autofit") %>%
+  font(fontname = "Calibri", part = "all") %>%
+  fontsize(size = 11, part = "all")
+
+```
+
+
 ## Crosstabulation of PTLD domains
 
 ```{r, tab.cap = 'PTLD Domains'}
@@ -712,40 +736,42 @@ df_master %>%
 
 These variables capture physiological state, comorbidities, and imaging phenotypes that will serve as the input matrix for the unsupervised machine learning models.
 
-```{r table_clustering}
-df_master %>%
-  select(
-    region, Smoker, tobacco_hx, packsperday, a1c_percent, 
-    # missed_dose_last_thirty,
-    duration_symptoms_days,
-    fev1_liters, fvc_liters,
-    eot_cavitation, eot_nodules_masses, eot_alveolar_opacity, eot_pleural_effusion
-  ) %>%
-  tbl_summary(
-    type = all_continuous() ~ "continuous2",
-    statistic = list(
-      all_continuous2() ~ c("{median} ({p25}, {p75})",
-                            "{min}, {max}"),
-      all_categorical() ~ "{n} ({p}%)"
-    ),
-    missing = "ifany",
-    missing_text = "Missing"
-  ) %>%
-  modify_header(label = "**Clustering Feature**") %>%
-  bold_labels()  %>%
-  as_flex_table() %>% 
-  flextable::set_caption('Potential variables for cluster analysis',
-                         autonum = officer::run_autonum(seq_id = "tab",
-                                                        bkm = "VarsCluster")) %>%
-  bold(bold = TRUE, part = "header") %>%
-  autofit() %>%
-  set_table_properties(layout = "autofit") %>%
-  font(fontname = "Calibri", part = "all") %>%
-  fontsize(size = 11, part = "all")
 
-```
+<!-- ```{r table_clustering} -->
+<!-- df_master %>% -->
+<!--   select( -->
+<!--     region, Smoker, tobacco_hx, packsperday, a1c_percent,  -->
+<!--     # missed_dose_last_thirty, -->
+<!--     duration_symptoms_days, -->
+<!--     fev1_liters, fvc_liters, -->
+<!--     eot_cavitation, eot_nodules_masses, eot_alveolar_opacity, eot_pleural_effusion -->
+<!--   ) %>% -->
+<!--   tbl_summary( -->
+<!--     type = all_continuous() ~ "continuous2", -->
+<!--     statistic = list( -->
+<!--       all_continuous2() ~ c("{median} ({p25}, {p75})", -->
+<!--                             "{min}, {max}"), -->
+<!--       all_categorical() ~ "{n} ({p}%)" -->
+<!--     ), -->
+<!--     missing = "ifany", -->
+<!--     missing_text = "Missing" -->
+<!--   ) %>% -->
+<!--   modify_header(label = "**Clustering Feature**") %>% -->
+<!--   bold_labels()  %>% -->
+<!--   as_flex_table() %>%  -->
+<!--   flextable::set_caption('Potential variables for cluster analysis', -->
+<!--                          autonum = officer::run_autonum(seq_id = "tab", -->
+<!--                                                         bkm = "VarsCluster")) %>% -->
+<!--   bold(bold = TRUE, part = "header") %>% -->
+<!--   autofit() %>% -->
+<!--   set_table_properties(layout = "autofit") %>% -->
+<!--   font(fontname = "Calibri", part = "all") %>% -->
+<!--   fontsize(size = 11, part = "all") -->
 
-## Multiple timepoints
+<!-- ``` -->
+
+
+## Multiple timepoints, all regions combined
 
 ```{r table_clustering_longitudinal}
 df_visits_clean %>%
@@ -936,9 +962,90 @@ df_master %>%
 
 \newpage
 
-# Post-Treatment Outcomes
+<!-- # Post-Treatment Outcomes -->
 
-These variables measure the downstream functional and quality-of-life impact of the lung disease and will be held out of the cluster analysis to serve as evaluation endpoints.
+<!-- These variables measure the downstream functional and quality-of-life impact of the lung disease and will be held out of the cluster analysis to serve as evaluation endpoints. -->
+
+<!-- ```{r variable_dictionary_export} -->
+<!-- # Build a variable dictionary spreadsheet listing every variable that feeds -->
+<!-- # into a tbl_summary() table in this report, plus a blank column per -->
+<!-- # timepoint for manual annotation (e.g. tracking which timepoints each -->
+<!-- # variable is actually collected/reported at). -->
+<!-- # -->
+<!-- # NOTE: This list is maintained by hand -- each entry mirrors a select() -->
+<!-- # call feeding a tbl_summary() table above. If a table's variable list -->
+<!-- # changes, update the corresponding entry here. -->
+
+<!-- table_variables <- list( -->
+<!--   table_demographics = c( -->
+<!--     "region", "current_age", "sex_at_birth", "hivstatus", "bmi", "bsa", -->
+<!--     "tb_category", "type_of_previous_tb", "resistance_pattern", "asthma_hx", -->
+<!--     "copd_hx", "diabetes_hx", "tb_tx_outcomes", "previous_tb_treated", -->
+<!--     "dwelling_location" -->
+<!--   ), -->
+<!--   table_ptld_antecedent = c( -->
+<!--     "region", "tb_tx_outcomes", "successful_tx", "RecurrenceAfterEOT", -->
+<!--     "TxFailAfterEOT", "no_active_tb", "no_tx_fail", "antecedent_met" -->
+<!--   ), -->
+<!--   table_ptld = c( -->
+<!--     "region", "complete_spirometry", "spirometry_grade", "obstructive_pattern", -->
+<!--     "restrictive_pattern", "hypoxemia", "AnyRespSymptoms", "PersistentRespSymptoms", -->
+<!--     "ptld_classification", "ptld_subcategory" -->
+<!--   ), -->
+<!--   table_clustering = c( -->
+<!--     "region", "Smoker", "tobacco_hx", "current_smoker", "CurrentTobacco", -->
+<!--     "packsperday", "CurrentAlcohol", "a1c_percent", "duration_symptoms_days", -->
+<!--     "fev1_liters", "fvc_liters", "cavitation", "nodules_masses", -->
+<!--     "alveolar_opacity", "pleural_effusion" -->
+<!--   ), -->
+<!--   table_outcomes = c( -->
+<!--     "region", "SGRQ_TOTAL_SCORE", "min_completion_rate", "S2SExertHypoxemia" -->
+<!--   ) -->
+<!-- ) -->
+
+<!-- # Combine into one deduplicated variable list, preserving first-seen order -->
+<!-- all_vars <- table_variables %>% -->
+<!--   unlist(use.names = FALSE) %>% -->
+<!--   unique() -->
+
+<!-- # Pull each variable's label, checking df_master first and falling back to -->
+<!-- # df_visits_clean (some derived variables, e.g. duration_symptoms_days, only -->
+<!-- # carry a label via one of the two datasets). -->
+<!-- get_var_label <- function(var, df1 = df_master, df2 = df_visits_clean) { -->
+<!--   lbl <- NULL -->
+<!--   if (var %in% names(df1)) lbl <- var_label(df1[[var]]) -->
+<!--   if (is.null(lbl) && var %in% names(df2)) lbl <- var_label(df2[[var]]) -->
+<!--   if (is.null(lbl) || lbl == "") lbl <- NA_character_ -->
+<!--   lbl -->
+<!-- } -->
+
+<!-- var_labels <- vapply(all_vars, get_var_label, character(1)) -->
+
+<!-- # Timepoints actually present in the visit-level data (drop unused/empty -->
+<!-- # factor levels so we don't add blank columns for timepoints with no data) -->
+<!-- timepoints <- df_visits_clean %>% -->
+<!--   mutate(redcap_event_name = fct_drop(redcap_event_name)) %>% -->
+<!--   pull(redcap_event_name) %>% -->
+<!--   levels() -->
+
+<!-- variable_dictionary <- tibble( -->
+<!--   variable_name = all_vars, -->
+<!--   variable_label = var_labels -->
+<!-- ) %>% -->
+<!--   # Add one blank column per timepoint for manual tracking -->
+<!--   bind_cols( -->
+<!--     as_tibble(matrix(NA_character_, nrow = length(all_vars), ncol = length(timepoints), -->
+<!--                       dimnames = list(NULL, timepoints))) -->
+<!--   ) -->
+
+<!-- variable_dictionary -->
+
+<!-- writexl::write_xlsx( -->
+<!--   variable_dictionary, -->
+<!--   path = "variable_list_PTLD_clustering.xlsx" -->
+<!-- ) -->
+<!-- ``` -->
+
 
 ```{r table_outcomes_site}
 df_master %>%
