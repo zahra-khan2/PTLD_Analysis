@@ -962,89 +962,135 @@ df_master %>%
 
 \newpage
 
-<!-- # Post-Treatment Outcomes -->
+# Post-Treatment Outcomes
 
-<!-- These variables measure the downstream functional and quality-of-life impact of the lung disease and will be held out of the cluster analysis to serve as evaluation endpoints. -->
+These variables measure the downstream functional and quality-of-life impact of the lung disease and will be held out of the cluster analysis to serve as evaluation endpoints.
 
-<!-- ```{r variable_dictionary_export} -->
-<!-- # Build a variable dictionary spreadsheet listing every variable that feeds -->
-<!-- # into a tbl_summary() table in this report, plus a blank column per -->
-<!-- # timepoint for manual annotation (e.g. tracking which timepoints each -->
-<!-- # variable is actually collected/reported at). -->
-<!-- # -->
-<!-- # NOTE: This list is maintained by hand -- each entry mirrors a select() -->
-<!-- # call feeding a tbl_summary() table above. If a table's variable list -->
-<!-- # changes, update the corresponding entry here. -->
+```{r variable_dictionary_export}
+# Build a variable dictionary spreadsheet listing every variable that feeds
+# into a tbl_summary() table in this report, plus a blank column per
+# timepoint for manual annotation (e.g. tracking which timepoints each
+# variable is actually collected/reported at).
+#
+# NOTE: This list is maintained by hand -- each entry mirrors a select()
+# call feeding a tbl_summary() table above. If a table's variable list
+# changes, update the corresponding entry here.
 
-<!-- table_variables <- list( -->
-<!--   table_demographics = c( -->
-<!--     "region", "current_age", "sex_at_birth", "hivstatus", "bmi", "bsa", -->
-<!--     "tb_category", "type_of_previous_tb", "resistance_pattern", "asthma_hx", -->
-<!--     "copd_hx", "diabetes_hx", "tb_tx_outcomes", "previous_tb_treated", -->
-<!--     "dwelling_location" -->
-<!--   ), -->
-<!--   table_ptld_antecedent = c( -->
-<!--     "region", "tb_tx_outcomes", "successful_tx", "RecurrenceAfterEOT", -->
-<!--     "TxFailAfterEOT", "no_active_tb", "no_tx_fail", "antecedent_met" -->
-<!--   ), -->
-<!--   table_ptld = c( -->
-<!--     "region", "complete_spirometry", "spirometry_grade", "obstructive_pattern", -->
-<!--     "restrictive_pattern", "hypoxemia", "AnyRespSymptoms", "PersistentRespSymptoms", -->
-<!--     "ptld_classification", "ptld_subcategory" -->
-<!--   ), -->
-<!--   table_clustering = c( -->
-<!--     "region", "Smoker", "tobacco_hx", "current_smoker", "CurrentTobacco", -->
-<!--     "packsperday", "CurrentAlcohol", "a1c_percent", "duration_symptoms_days", -->
-<!--     "fev1_liters", "fvc_liters", "cavitation", "nodules_masses", -->
-<!--     "alveolar_opacity", "pleural_effusion" -->
-<!--   ), -->
-<!--   table_outcomes = c( -->
-<!--     "region", "SGRQ_TOTAL_SCORE", "min_completion_rate", "S2SExertHypoxemia" -->
-<!--   ) -->
-<!-- ) -->
+table_variables <- list(
+  table_demographics = c(
+    "region", "current_age", "sex_at_birth", "hivstatus", "bmi", "bsa",
+    "tb_category", "type_of_previous_tb", "resistance_pattern", "asthma_hx",
+    "copd_hx", "diabetes_hx", "tb_tx_outcomes", "previous_tb_treated",
+    "dwelling_location"
+  ),
+  table_ptld_antecedent = c(
+    "region", "tb_tx_outcomes", "successful_tx", "RecurrenceAfterEOT",
+    "TxFailAfterEOT", "no_active_tb", "no_tx_fail", "antecedent_met"
+  ),
+  table_ptld = c(
+    "region", "complete_spirometry", "spirometry_grade", "obstructive_pattern",
+    "restrictive_pattern", "hypoxemia", "AnyRespSymptoms", "PersistentRespSymptoms",
+    "ptld_classification", "ptld_subcategory"
+  ),
+  table_clustering = c(
+    "region", "Smoker", "tobacco_hx", "current_smoker", "CurrentTobacco",
+    "packsperday", "CurrentAlcohol", "a1c_percent", "duration_symptoms_days",
+    "fev1_liters", "fvc_liters", "cavitation", "nodules_masses",
+    "alveolar_opacity", "pleural_effusion"
+  ),
+  table_outcomes = c(
+    "region", "SGRQ_TOTAL_SCORE", "min_completion_rate", "S2SExertHypoxemia"
+  )
+)
 
-<!-- # Combine into one deduplicated variable list, preserving first-seen order -->
-<!-- all_vars <- table_variables %>% -->
-<!--   unlist(use.names = FALSE) %>% -->
-<!--   unique() -->
+# Combine into one deduplicated variable list, preserving first-seen order
+all_vars <- table_variables %>%
+  unlist(use.names = FALSE) %>%
+  unique()
 
-<!-- # Pull each variable's label, checking df_master first and falling back to -->
-<!-- # df_visits_clean (some derived variables, e.g. duration_symptoms_days, only -->
-<!-- # carry a label via one of the two datasets). -->
-<!-- get_var_label <- function(var, df1 = df_master, df2 = df_visits_clean) { -->
-<!--   lbl <- NULL -->
-<!--   if (var %in% names(df1)) lbl <- var_label(df1[[var]]) -->
-<!--   if (is.null(lbl) && var %in% names(df2)) lbl <- var_label(df2[[var]]) -->
-<!--   if (is.null(lbl) || lbl == "") lbl <- NA_character_ -->
-<!--   lbl -->
-<!-- } -->
+# Pull each variable's label, checking df_master first and falling back to
+# df_visits_clean (some derived variables, e.g. duration_symptoms_days, only
+# carry a label via one of the two datasets).
+get_var_label <- function(var, df1 = df_master, df2 = df_visits_clean) {
+  lbl <- NULL
+  if (var %in% names(df1)) lbl <- var_label(df1[[var]])
+  if (is.null(lbl) && var %in% names(df2)) lbl <- var_label(df2[[var]])
+  if (is.null(lbl) || lbl == "") lbl <- NA_character_
+  lbl
+}
 
-<!-- var_labels <- vapply(all_vars, get_var_label, character(1)) -->
+var_labels <- vapply(all_vars, get_var_label, character(1))
 
-<!-- # Timepoints actually present in the visit-level data (drop unused/empty -->
-<!-- # factor levels so we don't add blank columns for timepoints with no data) -->
-<!-- timepoints <- df_visits_clean %>% -->
-<!--   mutate(redcap_event_name = fct_drop(redcap_event_name)) %>% -->
-<!--   pull(redcap_event_name) %>% -->
-<!--   levels() -->
+# Timepoints actually present in the visit-level data
+timepoints <- df_visits_clean %>%
+  mutate(redcap_event_name = fct_drop(redcap_event_name)) %>%
+  pull(redcap_event_name) %>%
+  levels()
 
-<!-- variable_dictionary <- tibble( -->
-<!--   variable_name = all_vars, -->
-<!--   variable_label = var_labels -->
-<!-- ) %>% -->
-<!--   # Add one blank column per timepoint for manual tracking -->
-<!--   bind_cols( -->
-<!--     as_tibble(matrix(NA_character_, nrow = length(all_vars), ncol = length(timepoints), -->
-<!--                       dimnames = list(NULL, timepoints))) -->
-<!--   ) -->
+# Get the N (total sample size) for each timepoint
+timepoint_n <- df_visits_clean %>%
+  group_by(redcap_event_name) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  deframe() %>%
+  .[timepoints]  # Ensure same order as timepoints
 
-<!-- variable_dictionary -->
+# For each variable and timepoint, calculate the percentage of non-missing values.
+# Variables from df_master only are assumed single-timepoint baseline data.
+completion_matrix <- matrix("", nrow = length(all_vars), ncol = length(timepoints))
+rownames(completion_matrix) <- all_vars
+colnames(completion_matrix) <- timepoints
 
-<!-- writexl::write_xlsx( -->
-<!--   variable_dictionary, -->
-<!--   path = "variable_list_PTLD_clustering.xlsx" -->
-<!-- ) -->
-<!-- ``` -->
+for (var in all_vars) {
+  # Check if variable is in df_visits_clean (timepoint-varying)
+  if (var %in% names(df_visits_clean)) {
+    for (tp in timepoints) {
+      n_nonmissing <- df_visits_clean %>%
+        filter(redcap_event_name == tp) %>%
+        pull({{var}}) %>%
+        is.na() %>%
+        `!`() %>%
+        sum()
+      
+      n_total <- timepoint_n[tp]
+      
+      if (n_nonmissing > 0) {
+        pct <- round(100 * n_nonmissing / n_total)
+        completion_matrix[var, tp] <- paste0(pct, "%")
+      }
+    }
+  } else if (var %in% names(df_master)) {
+    # Variables only in df_master are baseline/one-time (e.g., demographics,
+    # PTLD classification). Calculate completion rate in df_master.
+    n_nonmissing <- df_master %>%
+      pull({{var}}) %>%
+      is.na() %>%
+      `!`() %>%
+      sum()
+    
+    n_total <- nrow(df_master)
+    
+    if (n_nonmissing > 0) {
+      pct <- round(100 * n_nonmissing / n_total)
+      completion_matrix[var, "Baseline"] <- paste0(pct, "%")
+    }
+  }
+}
+
+variable_dictionary <- tibble(
+  variable_name = all_vars,
+  variable_label = var_labels
+) %>%
+  bind_cols(
+    as_tibble(completion_matrix)
+  )
+
+variable_dictionary
+
+writexl::write_xlsx(
+  variable_dictionary,
+  path = "variable_list_PTLD_clustering.xlsx"
+)
+```
 
 
 ```{r table_outcomes_site}
