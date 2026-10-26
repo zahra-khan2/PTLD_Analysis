@@ -1,7 +1,7 @@
-data/*
-output/*
+Data/*
+Output/*
 
-programs/00_PracticeModeling.qmd
+Programs/00_PracticeModeling.qmd
 
 .Rproj.user
 .Rhistory
